@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Korea Watch — World Cup 2026 Third-Place Tracker</title>
+<style>
+  :root{
+    --bg:#0e1116; --panel:#161b22; --panel2:#1c2230; --line:#2a3340;
+    --txt:#e6edf3; --dim:#8b949e; --good:#3fb950; --bad:#f85149;
+    --warn:#d29922; --accent:#58a6ff; --korea:#5b8cff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+    font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:20px;}
+  h1{font-size:22px;margin:0 0 4px}
+  .sub{color:var(--dim);margin-bottom:20px;font-size:13px}
+  .verdict{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:18px 20px;margin-bottom:22px;display:flex;align-items:center;gap:20px;flex-wrap:wrap}
+  .pct{font-size:40px;font-weight:700;line-height:1}
+  .pct.good{color:var(--good)} .pct.warn{color:var(--warn)} .pct.bad{color:var(--bad)}
+  .verdict .label{color:var(--dim);font-size:13px}
+  .koreaLine{margin-left:auto;text-align:right;font-size:13px;color:var(--dim)}
+  .koreaLine b{color:var(--korea);font-size:15px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:16px}
+  .group{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .ghead{padding:10px 14px;display:flex;justify-content:space-between;align-items:center;
+    border-bottom:1px solid var(--line);background:var(--panel2)}
+  .ghead .gname{font-weight:700}
+  .gstatus{font-size:11px;padding:3px 8px;border-radius:20px;font-weight:600}
+  .gstatus.done{background:#21262d;color:var(--dim)}
+  .gstatus.live{background:rgba(210,153,34,.15);color:var(--warn)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:right;color:var(--dim);font-weight:500;font-size:11px;padding:6px 8px;border-bottom:1px solid var(--line)}
+  th:first-child{text-align:left}
+  td{padding:7px 8px;text-align:right;border-bottom:1px solid #20262f}
+  td:first-child{text-align:left;font-weight:500}
+  tr:last-child td{border-bottom:none}
+  .third{background:rgba(88,166,255,.07)}
+  .third td:first-child::after{content:" ◄ 3rd";color:var(--accent);font-size:10px;font-weight:600}
+  .matches{padding:12px 14px;border-top:1px solid var(--line);background:#12161d}
+  .match{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+  .match:last-child{margin-bottom:0}
+  .match .time{font-size:11px;color:var(--dim);width:62px;flex-shrink:0}
+  .match .teams{flex:1;font-size:13px}
+  .score{width:34px;background:#0d1117;border:1px solid var(--line);color:var(--txt);
+    border-radius:6px;padding:4px;text-align:center;font-size:13px}
+  .vs{color:var(--dim);font-size:11px}
+  .threat{margin:10px 14px;padding:9px 11px;border-radius:8px;font-size:12px;line-height:1.45}
+  .threat.bad{background:rgba(248,81,73,.1);border:1px solid rgba(248,81,73,.25)}
+  .threat.good{background:rgba(63,185,80,.1);border:1px solid rgba(63,185,80,.25)}
+  .threat.warn{background:rgba(210,153,34,.1);border:1px solid rgba(210,153,34,.25)}
+  .threat b{color:var(--txt)}
+  .legend{display:flex;gap:18px;flex-wrap:wrap;margin:18px 0;font-size:12px;color:var(--dim)}
+  .legend span{display:flex;align-items:center;gap:6px}
+  .dot{width:10px;height:10px;border-radius:50%}
+  .controls{margin:16px 0;display:flex;gap:10px;flex-wrap:wrap}
+  button{background:var(--panel2);color:var(--txt);border:1px solid var(--line);
+    border-radius:8px;padding:8px 14px;cursor:pointer;font-size:13px}
+  button:hover{border-color:var(--accent)}
+  .col2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:22px}
+  @media(max-width:700px){.col2{grid-template-columns:1fr}}
+  .box{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .box h3{margin:0 0 10px;font-size:14px}
+  .teamlist{font-size:13px;line-height:1.9}
+  .pill{display:inline-block;padding:1px 8px;border-radius:20px;font-size:11px;margin-left:6px}
+  .pill.in{background:rgba(63,185,80,.15);color:var(--good)}
+  .pill.out{background:rgba(248,81,73,.15);color:var(--bad)}
+  .pill.wait{background:rgba(210,153,34,.15);color:var(--warn)}
+</style>
+</head>
+<body>
+<h1>🇰🇷 Korea Watch — World Cup 2026 Third-Place Tracker</h1>
+<div class="sub">Korea finished 3rd in Group A. 8 of 12 third-place teams advance. Enter scores as matches finish — everything recalculates live.</div>
+
+<div class="verdict">
+  <div>
+    <div class="pct" id="pctNum">—</div>
+    <div class="label">of remaining outcomes → Korea in top 8</div>
+  </div>
+  <div class="koreaLine">
+    Korea's line to beat:<br><b id="koreaLine">3 pts · GD −1 · 2 GF</b>
+  </div>
+</div>
+
+<div class="col2">
+  <div class="box">
+    <h3>✅ Already THROUGH as a third place (locked above Korea)</h3>
+    <div class="teamlist">
+      Ecuador <span class="pill in">4 pts</span><br>
+      Sweden <span class="pill in">4 pts</span><br>
+      Bosnia <span class="pill in">4 pts</span><br>
+      Paraguay <span class="pill in">4 pts</span>
+    </div>
+    <div style="margin-top:10px;color:var(--dim);font-size:12px">4 teams above Korea → Korea holds the 5th-of-8 spot now. She's out only if <b>4+</b> live teams below finish above her.</div>
+  </div>
+  <div class="box">
+    <h3>⛔ Out of the running (can't catch Korea)</h3>
+    <div class="teamlist">
+      Scotland <span class="pill out">3 pts · GD −3, done</span><br>
+      <span style="color:var(--dim);font-size:12px">Finished 3rd in Group C with worse GD — mathematically below Korea. No threat.</span>
+    </div>
+  </div>
+</div>
+
+<div class="legend">
+  <span><span class="dot" style="background:var(--good)"></span>Outcome we want</span>
+  <span><span class="dot" style="background:var(--bad)"></span>Outcome that hurts Korea</span>
+  <span><span class="dot" style="background:var(--accent)"></span>Current 3rd place</span>
+</div>
+
+<div class="controls">
+  <button onclick="resetScores()">Reset scores</button>
+  <button onclick="applyRooting()">Fill in “best case for Korea”</button>
+</div>
+
+<div class="grid" id="groups"></div>
+
+<script>
+// ---------- DATA: current standings BEFORE each final match ----------
+// gf/ga are goals for/against so far. Final matches listed with kickoff (ET).
+const KOREA = {pts:3, gd:-1, gf:2};
+
+const groups = {
+  I: {
+    status:"live",
+    teams:{
+      France:{pts:6,gf:6,ga:1}, Norway:{pts:6,gf:7,ga:3},
+      Senegal:{pts:0,gf:3,ga:6}, Iraq:{pts:0,gf:1,ga:7}
+    },
+    matches:[
+      {home:"Norway",away:"France",time:"Fri 3PM"},
+      {home:"Senegal",away:"Iraq",time:"Fri 3PM"}
+    ],
+    want:"THE ONLY THING THAT MATTERS: Senegal must NOT beat Iraq by 2+. A draw, a Senegal loss, or a 1-goal Senegal win all keep them below Korea.",
+    danger:"Senegal winning by 2+ (e.g. 2-0) → reaches GD −1 with more goals scored than Korea → beats her. Norway/France is irrelevant."
+  },
+  H: {
+    status:"live",
+    teams:{
+      Spain:{pts:4,gf:4,ga:0}, Uruguay:{pts:2,gf:3,ga:3},
+      CapeVerde:{pts:2,gf:2,ga:2}, Saudi:{pts:1,gf:1,ga:5}
+    },
+    matches:[
+      {home:"CapeVerde",away:"Saudi",time:"Fri 8PM"},
+      {home:"Uruguay",away:"Spain",time:"Fri 8PM"}
+    ],
+    want:"THE ONLY THING THAT MATTERS: Spain must beat Uruguay. If Spain wins, Korea is 100% safe from Group H no matter what Cape Verde/Saudi do.",
+    danger:"Any Uruguay–Spain draw, or a Uruguay win → a Group H team (Uruguay/Cape Verde/Spain) lands 3rd on 3+ pts with GD ≥ −1 → beats Korea."
+  },
+  G: {
+    status:"live",
+    teams:{
+      Egypt:{pts:4,gf:4,ga:2}, Iran:{pts:2,gf:2,ga:2},
+      Belgium:{pts:2,gf:1,ga:1}, NZ:{pts:1,gf:3,ga:5}
+    },
+    matches:[
+      {home:"Egypt",away:"Iran",time:"Fri 11PM"},
+      {home:"NZ",away:"Belgium",time:"Fri 11PM"}
+    ],
+    want:"THE ONLY THING THAT MATTERS: Egypt must beat Iran. If Egypt wins, Korea is 100% safe from Group G — the NZ/Belgium result is irrelevant (Iran finishes 3rd on 2 pts either way).",
+    danger:"Iran drawing or beating Egypt → a 3-or-4-point team finishes 3rd and beats Korea."
+  },
+  L: {
+    status:"live",
+    teams:{
+      England:{pts:4,gf:4,ga:2}, Ghana:{pts:4,gf:1,ga:0},
+      Croatia:{pts:3,gf:3,ga:4}, Panama:{pts:0,gf:0,ga:4}
+    },
+    matches:[
+      {home:"Croatia",away:"Ghana",time:"Sat 5PM"},
+      {home:"Panama",away:"England",time:"Sat 5PM"}
+    ],
+    want:"Best hope: Ghana must beat Croatia. Even then it's not a lock (the England/Ghana third can still edge Korea in some scores) — L is the shakiest group.",
+    danger:"Croatia drawing OR winning → Croatia (or a 4-pt England/Ghana third) finishes above Korea. Croatia already leads Korea on goals scored."
+  },
+  K: {
+    status:"live",
+    teams:{
+      Colombia:{pts:6,gf:4,ga:1}, Portugal:{pts:4,gf:6,ga:1},
+      DRCongo:{pts:1,gf:1,ga:2}, Uzbek:{pts:0,gf:1,ga:8}
+    },
+    matches:[
+      {home:"Colombia",away:"Portugal",time:"Sat 7:30PM"},
+      {home:"DRCongo",away:"Uzbek",time:"Sat 7:30PM"}
+    ],
+    want:"THE ONLY THING THAT MATTERS: DR Congo must NOT win. A draw or loss keeps them at ≤2 pts, below Korea. Colombia/Portugal is irrelevant.",
+    danger:"DR Congo beating Uzbekistan → 4 pts → beats Korea outright."
+  },
+  J: {
+    status:"live",
+    teams:{
+      Argentina:{pts:6,gf:5,ga:2}, Austria:{pts:3,gf:3,ga:3},
+      Algeria:{pts:3,gf:2,ga:4}, Jordan:{pts:0,gf:2,ga:5}
+    },
+    matches:[
+      {home:"Algeria",away:"Austria",time:"Sat 10PM"},
+      {home:"Jordan",away:"Argentina",time:"Sat 10PM"}
+    ],
+    want:"THE MAIN THING: Austria must beat Algeria (ideally clearly). An Austria win almost always drops Algeria to a harmless 3-pt/−3 third. Jordan/Argentina is irrelevant.",
+    danger:"An Algeria–Austria draw (4-pt third), or a narrow high-scoring Austria win, can still produce a third above Korea. Algeria winning also hurts (Austria 3rd on goals)."
+  }
+};
+
+// store user-entered scores: groups[g].matches[i].hs / .as
+function gd(t){return t.gf-t.ga;}
+
+function computeGroupFinal(g){
+  // clone teams, apply any entered scores
+  const data = groups[g];
+  const t = {};
+  for(const name in data.teams) t[name]={...data.teams[name]};
+  for(const m of data.matches){
+    if(m.hs!=null && m.as!=null && m.hs!=="" && m.as!==""){
+      const hs=+m.hs, as=+m.as;
+      t[m.home].gf+=hs; t[m.home].ga+=as;
+      t[m.away].gf+=as; t[m.away].ga+=hs;
+      if(hs>as) t[m.home].pts+=3;
+      else if(as>hs) t[m.away].pts+=3;
+      else {t[m.home].pts+=1; t[m.away].pts+=1;}
+    }
+  }
+  // rank
+  const ranked = Object.entries(t).map(([n,r])=>({name:n,...r}))
+    .sort((a,b)=> b.pts-a.pts || gd(b)-gd(a) || b.gf-a.gf);
+  return {table:t, ranked};
+}
+
+function allMatchesEntered(g){
+  return groups[g].matches.every(m=>m.hs!=null&&m.hs!==""&&m.as!=null&&m.as!=="");
+}
+
+function thirdBeatsKorea(rec){
+  if(rec.pts!==KOREA.pts) return rec.pts>KOREA.pts;
+  if(gd(rec)!==KOREA.gd) return gd(rec)>KOREA.gd;
+  return rec.gf>KOREA.gf; // goals scored; ties beyond this go to conduct (assume risk)
+}
+
+// ---- crude probability: enumerate 0..4 scorelines for unentered matches ----
+function groupThirdDist(g){
+  const data=groups[g];
+  const base={};
+  for(const name in data.teams) base[name]={...data.teams[name]};
+  // build list of matches needing enumeration vs fixed
+  const outcomes=[];
+  function rec(i, tbl){
+    if(i===data.matches.length){
+      const ranked=Object.entries(tbl).map(([n,r])=>({name:n,...r}))
+        .sort((a,b)=>b.pts-a.pts||gd(b)-gd(a)||b.gf-a.gf);
+      outcomes.push(ranked[2]);
+      return;
+    }
+    const m=data.matches[i];
+    if(m.hs!=null&&m.hs!==""&&m.as!=null&&m.as!==""){
+      rec(i+1, applied(tbl,m,+m.hs,+m.as));
+    } else {
+      for(let h=0;h<=4;h++)for(let a=0;a<=4;a++)
+        rec(i+1, applied(tbl,m,h,a));
+    }
+  }
+  function applied(tbl,m,hs,as){
+    const t={}; for(const n in tbl)t[n]={...tbl[n]};
+    t[m.home].gf+=hs;t[m.home].ga+=as;t[m.away].gf+=as;t[m.away].ga+=hs;
+    if(hs>as)t[m.home].pts+=3;else if(as>hs)t[m.away].pts+=3;
+    else{t[m.home].pts+=1;t[m.away].pts+=1;}
+    return t;
+  }
+  rec(0,base);
+  return outcomes;
+}
+
+function overallProb(){
+  // Monte Carlo over groups' third distributions
+  const dists={};
+  for(const g in groups) dists[g]=groupThirdDist(g);
+  const fixedAbove=4; // Ecuador,Sweden,Bosnia,Paraguay
+  const N=20000; let inCount=0;
+  for(let s=0;s<N;s++){
+    let above=fixedAbove;
+    for(const g in groups){
+      const d=dists[g];
+      const pick=d[(Math.random()*d.length)|0];
+      if(thirdBeatsKorea(pick)) above++;
+    }
+    if(above+1<=8) inCount++;
+  }
+  return inCount/N*100;
+}
+
+function render(){
+  const wrap=document.getElementById("groups");
+  wrap.innerHTML="";
+  for(const g in groups){
+    const data=groups[g];
+    const {ranked}=computeGroupFinal(g);
+    const third=ranked[2];
+    const done=allMatchesEntered(g);
+    const beats = thirdBeatsKorea(third);
+
+    let rows="";
+    ranked.forEach((r,idx)=>{
+      rows+=`<tr class="${idx===2?'third':''}">
+        <td>${r.name}</td><td>${r.pts}</td>
+        <td>${gd(r)>=0?'+':''}${gd(r)}</td><td>${r.gf}</td></tr>`;
+    });
+
+    let matchRows="";
+    data.matches.forEach((m,i)=>{
+      matchRows+=`<div class="match">
+        <span class="time">${m.time}</span>
+        <span class="teams">${m.home} <span class="vs">vs</span> ${m.away}</span>
+        <input class="score" inputmode="numeric" value="${m.hs??''}"
+          onchange="setScore('${g}',${i},'hs',this.value)">
+        <input class="score" inputmode="numeric" value="${m.as??''}"
+          onchange="setScore('${g}',${i},'as',this.value)">
+      </div>`;
+    });
+
+    const threatClass = done ? (beats?'bad':'good') : 'warn';
+    const threatText = done
+      ? (beats?`<b>Group ${g} third (${third.name}) BEATS Korea.</b> ${data.danger}`
+              :`<b>Group ${g} third (${third.name}) is below Korea — safe.</b> ${data.want}`)
+      : `<b>Want:</b> ${data.want}<br><b>Danger:</b> ${data.danger}`;
+
+    wrap.innerHTML+=`
+      <div class="group">
+        <div class="ghead">
+          <span class="gname">Group ${g}</span>
+          <span class="gstatus ${done?'done':'live'}">${done?'FINISHED':'LIVE'}</span>
+        </div>
+        <table>
+          <tr><th>Team</th><th>Pts</th><th>GD</th><th>GF</th></tr>
+          ${rows}
+        </table>
+        <div class="matches">${matchRows}</div>
+        <div class="threat ${threatClass}">${threatText}</div>
+      </div>`;
+  }
+  // verdict
+  const p=overallProb();
+  const el=document.getElementById("pctNum");
+  el.textContent=Math.round(p)+"%";
+  el.className="pct "+(p>=75?'good':p>=45?'warn':'bad');
+}
+
+function setScore(g,i,side,val){
+  groups[g].matches[i][side]= val===""?"":val;
+  render();
+}
+function resetScores(){
+  for(const g in groups) groups[g].matches.forEach(m=>{m.hs="";m.as="";});
+  render();
+}
+function applyRooting(){
+  // fill in the best-case-for-Korea scoreline in each group
+  const best={
+    I:[["Norway","France",1,1],["Senegal","Iraq",1,1]],
+    H:[["CapeVerde","Saudi",2,0],["Uruguay","Spain",0,2]],
+    G:[["Egypt","Iran",2,0],["NZ","Belgium",0,1]],
+    L:[["Croatia","Ghana",0,1],["Panama","England",0,2]],
+    K:[["Colombia","Portugal",1,1],["DRCongo","Uzbek",1,1]],
+    J:[["Algeria","Austria",0,2],["Jordan","Argentina",0,2]]
+  };
+  for(const g in best){
+    best[g].forEach((sc,i)=>{groups[g].matches[i].hs=sc[2];groups[g].matches[i].as=sc[3];});
+  }
+  render();
+}
+
+render();
+</script>
+</body>
+</html>
