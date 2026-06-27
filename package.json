@@ -1,0 +1,13 @@
+{
+  "name": "korea-wc-tracker",
+  "version": "1.0.0",
+  "description": "South Korea World Cup 2026 third-place qualification tracker",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}
