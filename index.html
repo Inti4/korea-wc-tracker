@@ -99,6 +99,9 @@
   .mini.out{background:rgba(248,81,73,.15);color:var(--bad)}
   .livedot{display:inline-block;width:7px;height:7px;border-radius:50%;
     background:var(--warn);margin-left:5px;vertical-align:middle}
+  .livestatus{font-size:12px;color:var(--dim);margin:-8px 0 16px 2px}
+  .livestatus.ok{color:var(--good)}
+  .livestatus.err{color:var(--warn)}
 </style>
 </head>
 <body>
@@ -150,15 +153,20 @@
 </div>
 
 <div class="controls">
+  <button onclick="fetchLiveScores(true)">🔄 Refresh live scores</button>
   <button onclick="resetScores()">Reset scores</button>
   <button onclick="applyRooting()">Fill in “best case for Korea”</button>
 </div>
+<div id="liveStatus" class="livestatus">Checking live scores…</div>
 
 <div class="grid" id="groups"></div>
 
 <script>
 // ---------- DATA: current standings BEFORE each final match ----------
 // gf/ga are goals for/against so far. Final matches listed with kickoff (ET).
+// kickoff: ISO string used to drive auto-refresh windows.
+// api: [homeNameHints[], awayNameHints[]] — fuzzy-matched against the
+//      worldcup26.ir home_team_name_en / away_team_name_en strings.
 const KOREA = {pts:3, gd:-1, gf:2};
 
 const groups = {
@@ -169,8 +177,10 @@ const groups = {
       Senegal:{pts:0,gf:3,ga:6}, Iraq:{pts:0,gf:1,ga:7}
     },
     matches:[
-      {home:"Norway",away:"France",time:"Fri 3PM",hs:1,as:4},
-      {home:"Senegal",away:"Iraq",time:"Fri 3PM",hs:2,as:0}
+      {home:"Norway",away:"France",time:"Fri 3PM",hs:1,as:4,
+        kickoff:"2026-06-26T15:00:00-04:00",api:[["norway"],["france"]]},
+      {home:"Senegal",away:"Iraq",time:"Fri 3PM",hs:5,as:0,
+        kickoff:"2026-06-26T15:00:00-04:00",api:[["senegal"],["iraq"]]}
     ],
     headline:"Senegal must NOT beat Iraq by 2+",
     want:[
@@ -188,8 +198,10 @@ const groups = {
       CapeVerde:{pts:2,gf:2,ga:2}, Saudi:{pts:1,gf:1,ga:5}
     },
     matches:[
-      {home:"CapeVerde",away:"Saudi",time:"Fri 8PM"},
-      {home:"Uruguay",away:"Spain",time:"Fri 8PM"}
+      {home:"CapeVerde",away:"Saudi",time:"Fri 8PM",hs:0,as:0,
+        kickoff:"2026-06-26T20:00:00-04:00",api:[["cape verde","cabo verde"],["saudi"]]},
+      {home:"Uruguay",away:"Spain",time:"Fri 8PM",hs:0,as:1,
+        kickoff:"2026-06-26T20:00:00-04:00",api:[["uruguay"],["spain"]]}
     ],
     headline:"Spain must beat Uruguay",
     want:[
@@ -207,8 +219,10 @@ const groups = {
       Belgium:{pts:2,gf:1,ga:1}, NZ:{pts:1,gf:3,ga:5}
     },
     matches:[
-      {home:"Egypt",away:"Iran",time:"Fri 11PM"},
-      {home:"NZ",away:"Belgium",time:"Fri 11PM"}
+      {home:"Egypt",away:"Iran",time:"Fri 11PM",
+        kickoff:"2026-06-26T23:00:00-04:00",api:[["egypt"],["iran"]]},
+      {home:"NZ",away:"Belgium",time:"Fri 11PM",
+        kickoff:"2026-06-26T23:00:00-04:00",api:[["new zealand"],["belgium"]]}
     ],
     headline:"Egypt must beat Iran",
     want:[
@@ -226,8 +240,10 @@ const groups = {
       Croatia:{pts:3,gf:3,ga:4}, Panama:{pts:0,gf:0,ga:4}
     },
     matches:[
-      {home:"Croatia",away:"Ghana",time:"Sat 5PM"},
-      {home:"Panama",away:"England",time:"Sat 5PM"}
+      {home:"Croatia",away:"Ghana",time:"Sat 5PM",
+        kickoff:"2026-06-27T17:00:00-04:00",api:[["croatia"],["ghana"]]},
+      {home:"Panama",away:"England",time:"Sat 5PM",
+        kickoff:"2026-06-27T17:00:00-04:00",api:[["panama"],["england"]]}
     ],
     headline:"Need Ghana to beat Croatia (shakiest group)",
     want:[
@@ -246,8 +262,10 @@ const groups = {
       DRCongo:{pts:1,gf:1,ga:2}, Uzbek:{pts:0,gf:1,ga:8}
     },
     matches:[
-      {home:"Colombia",away:"Portugal",time:"Sat 7:30PM"},
-      {home:"DRCongo",away:"Uzbek",time:"Sat 7:30PM"}
+      {home:"Colombia",away:"Portugal",time:"Sat 7:30PM",
+        kickoff:"2026-06-27T19:30:00-04:00",api:[["colombia"],["portugal"]]},
+      {home:"DRCongo",away:"Uzbek",time:"Sat 7:30PM",
+        kickoff:"2026-06-27T19:30:00-04:00",api:[["congo","dr congo"],["uzbekistan"]]}
     ],
     headline:"DR Congo must NOT win",
     want:[
@@ -265,8 +283,10 @@ const groups = {
       Algeria:{pts:3,gf:2,ga:4}, Jordan:{pts:0,gf:2,ga:5}
     },
     matches:[
-      {home:"Algeria",away:"Austria",time:"Sat 10PM"},
-      {home:"Jordan",away:"Argentina",time:"Sat 10PM"}
+      {home:"Algeria",away:"Austria",time:"Sat 10PM",
+        kickoff:"2026-06-27T22:00:00-04:00",api:[["algeria"],["austria"]]},
+      {home:"Jordan",away:"Argentina",time:"Sat 10PM",
+        kickoff:"2026-06-27T22:00:00-04:00",api:[["jordan"],["argentina"]]}
     ],
     headline:"Austria must beat Algeria (ideally clearly)",
     want:[
@@ -513,6 +533,103 @@ function applyRooting(){
 }
 
 render();
+
+// ============================================================
+// LIVE SCORES — worldcup26.ir integration
+// ============================================================
+const API_BASE = "https://worldcup26.ir";
+let lastFetchOk = null;
+let liveTimer = null;
+
+function norm(s){ return (s||"").toLowerCase().trim(); }
+
+function matchesHint(apiName, hints){
+  const n = norm(apiName);
+  return hints.some(h => n.includes(h));
+}
+
+async function fetchLiveScores(manual){
+  const statusEl = document.getElementById("liveStatus");
+  if(statusEl) statusEl.textContent = "Fetching…";
+  try{
+    const res = await fetch(`${API_BASE}/get/games`, {cache:"no-store"});
+    if(!res.ok) throw new Error("HTTP "+res.status);
+    const data = await res.json();
+    const apiGames = data.games || data || [];
+    let updated = 0, stillLive = false;
+
+    for(const g in groups){
+      groups[g].matches.forEach(m=>{
+        if(!m.api) return;
+        const [homeHints, awayHints] = m.api;
+        const found = apiGames.find(game =>
+          matchesHint(game.home_team_name_en, homeHints) &&
+          matchesHint(game.away_team_name_en, awayHints)
+        );
+        if(!found) return;
+        const finished = String(found.finished).toUpperCase()==="TRUE";
+        const hs = found.home_score, as = found.away_score;
+        if(hs!==null && hs!==undefined && hs!=="" && as!==null && as!==undefined && as!==""){
+          m.hs = parseInt(hs,10);
+          m.as = parseInt(as,10);
+          updated++;
+        }
+        if(!finished && m.kickoff && new Date() >= new Date(m.kickoff)){
+          stillLive = true; // a match in our window has kicked off but isn't finished
+        }
+      });
+    }
+    lastFetchOk = true;
+    render();
+    const now = new Date();
+    if(statusEl){
+      statusEl.innerHTML = `✓ Updated ${updated} score${updated===1?'':'s'} · last checked ${now.toLocaleTimeString()}`;
+      statusEl.className = "livestatus ok";
+    }
+    scheduleNextAutoRefresh(stillLive);
+  }catch(err){
+    lastFetchOk = false;
+    if(statusEl){
+      statusEl.innerHTML = `⚠ Live fetch failed (${err.message}) — manual entry still works`;
+      statusEl.className = "livestatus err";
+    }
+    scheduleNextAutoRefresh(false, true);
+  }
+}
+
+function anyMatchLiveSoonOrNow(){
+  const now = new Date();
+  for(const g in groups){
+    for(const m of groups[g].matches){
+      if(!m.kickoff) continue;
+      const ko = new Date(m.kickoff);
+      const mins = (ko - now)/60000;
+      if(mins <= 10 && mins > -180) return true;
+    }
+  }
+  return false;
+}
+
+function scheduleNextAutoRefresh(matchInProgress, isErrorBackoff){
+  if(liveTimer) clearTimeout(liveTimer);
+  if(!anyMatchLiveSoonOrNow()){
+    const statusEl = document.getElementById("liveStatus");
+    if(statusEl && lastFetchOk){
+      statusEl.innerHTML += " · auto-refresh paused (no match live)";
+    }
+    return;
+  }
+  const interval = isErrorBackoff ? 5*60*1000
+                  : matchInProgress ? 2*60*1000
+                  : 60*1000;
+  liveTimer = setTimeout(()=>fetchLiveScores(false), interval);
+}
+
+function initLiveScores(){
+  fetchLiveScores(false);
+}
+initLiveScores();
+
 </script>
 </body>
 </html>
