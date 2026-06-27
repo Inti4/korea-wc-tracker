@@ -1,2 +1,4 @@
 node_modules/
 *.tsbuildinfo
+app.js
+_site/

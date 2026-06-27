@@ -28,20 +28,22 @@ Vanilla TypeScript + HTML/CSS, no framework. The app logic lives in
 
 ```sh
 npm install
-npm run build      # tsc → app.js
+npm run build      # tsc → app.js (git-ignored; CI rebuilds it)
 npm run watch      # rebuild on change
 ```
 
-`app.js` is committed so GitHub Pages can serve it directly (no CI build step).
-Re-run `npm run build` and commit the updated `app.js` after editing `src/app.ts`.
+`app.js` is a build artifact and is **not** committed — GitHub Actions compiles it
+on every push (see Deploy). Build locally only when you want to preview.
 
 ## Deploy
 
-GitHub Pages, served from `main`:
+Pushing to `main` triggers [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml),
+which runs `npm ci && npm run build` and publishes `index.html` plus the freshly built
+`app.js` to GitHub Pages.
+
+One-time setup: in the repo's **Settings → Pages → Build and deployment**, set
+**Source** to **GitHub Actions**.
 
 ```sh
-npm run build
-git add index.html app.js src/
-git commit -m "..."
-git push
+git push    # build + deploy then happen in CI
 ```
