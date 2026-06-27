@@ -110,6 +110,20 @@
   .mbadge.manual{background:rgba(88,166,255,.15);color:var(--accent)}
   .mbadge.sched{background:#21262d;color:var(--dim)}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+  /* plain-English verdict line */
+  .verdictText{font-size:13.5px;font-weight:600;margin-top:6px;max-width:360px}
+  .verdictText.good{color:var(--good)} .verdictText.warn{color:var(--warn)} .verdictText.bad{color:var(--bad)}
+  /* probability sparkline */
+  .spark{display:flex;flex-direction:column;align-items:flex-end;gap:3px}
+  .spark .sparklabel{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.04em}
+  /* round-of-32 preview */
+  .rd32{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:14px 16px;margin-bottom:22px;display:none;align-items:center;gap:14px}
+  .rd32.show{display:flex}
+  .rd32 .trophy{font-size:26px;flex-shrink:0}
+  .rd32 .r32main{font-size:15px;font-weight:700}
+  .rd32 .r32main .vsteam{color:var(--accent)}
+  .rd32 .r32sub{font-size:12px;color:var(--dim);margin-top:3px}
 </style>
 </head>
 <body>
@@ -120,9 +134,22 @@
   <div>
     <div class="pct" id="pctNum">—</div>
     <div class="label">of remaining outcomes → Korea in top 8</div>
+    <div class="verdictText" id="verdictText"></div>
+  </div>
+  <div class="spark" id="sparkWrap" style="margin-left:auto">
+    <div class="sparklabel">probability trajectory</div>
+    <svg id="sparkline" width="170" height="40"></svg>
   </div>
   <div class="koreaLine">
     Korea's line to beat:<br><b id="koreaLine">3 pts · GD −1 · 2 GF</b>
+  </div>
+</div>
+
+<div class="rd32" id="rd32">
+  <span class="trophy">🏆</span>
+  <div>
+    <div class="r32main" id="r32main"></div>
+    <div class="r32sub" id="r32sub"></div>
   </div>
 </div>
 
@@ -164,6 +191,8 @@
   <button onclick="fetchLiveScores(true)">🔄 Refresh live scores</button>
   <button onclick="resetScores()">Reset scores</button>
   <button onclick="applyRooting()">Fill in “best case for Korea”</button>
+  <button onclick="toggleModel()" id="modelBtn">Model: Uniform 0–4</button>
+  <button onclick="enableNotifications()" id="notifyBtn">🔔 Notify on score change</button>
 </div>
 <div id="liveStatus" class="livestatus">Checking live scores…</div>
 
@@ -176,6 +205,49 @@
 // api: [homeNameHints[], awayNameHints[]] — fuzzy-matched against the
 //      worldcup26.ir home_team_name_en / away_team_name_en strings.
 const KOREA = {pts:3, gd:-1, gf:2};
+
+// ---------- scoreline model ----------
+// 'uniform'  = every 0..4 score equally likely (conservative; original behaviour).
+// 'poisson'  = goals ~ Poisson(expected), expected derived from rough strength gap.
+let MODEL = 'uniform';
+// Rough relative strength (~ -1.4 minnow … +1.6 elite). Only teams appearing in
+// still-to-play matches matter. These are tunable estimates, not official ratings.
+const STRENGTH = {
+  Egypt:0.1, Iran:0.0, Belgium:0.9, NZ:-1.0,
+  England:1.2, Ghana:0.0, Croatia:0.8, Panama:-1.1,
+  Colombia:0.7, Portugal:1.3, DRCongo:-0.4, Uzbek:-1.0,
+  Argentina:1.6, Austria:0.3, Algeria:0.0, Jordan:-1.2,
+  France:1.5, Norway:0.7, Senegal:0.5, Iraq:-0.9,
+  Spain:1.5, Uruguay:0.8, CapeVerde:-0.6, Saudi:-0.8
+};
+function poissonSample(lambda){
+  const L=Math.exp(-lambda); let k=0,p=1;
+  do{ k++; p*=Math.random(); }while(p>L);
+  return k-1;
+}
+function expectedGoals(home,away){
+  const sh=STRENGTH[home]??0, sa=STRENGTH[away]??0;
+  return [Math.max(0.15, 1.3+0.55*(sh-sa)), Math.max(0.15, 1.3+0.55*(sa-sh))];
+}
+// one sampled scoreline for a match: fixed if entered, else model-driven
+function sampleScore(m){
+  if(m.hs!=null&&m.hs!==""&&m.as!=null&&m.as!=="") return [+m.hs,+m.as];
+  if(MODEL==='poisson'){ const [lh,la]=expectedGoals(m.home,m.away); return [poissonSample(lh),poissonSample(la)]; }
+  return [(Math.random()*5)|0,(Math.random()*5)|0];
+}
+// one sampled final table for a group → its 3rd-place team
+function sampleGroupThird(g){
+  const data=groups[g], t={};
+  for(const n in data.teams) t[n]={...data.teams[n]};
+  for(const m of data.matches){
+    const [hs,as]=sampleScore(m);
+    t[m.home].gf+=hs; t[m.home].ga+=as; t[m.away].gf+=as; t[m.away].ga+=hs;
+    if(hs>as) t[m.home].pts+=3; else if(as>hs) t[m.away].pts+=3;
+    else { t[m.home].pts+=1; t[m.away].pts+=1; }
+  }
+  return Object.entries(t).map(([n,r])=>({name:n,...r}))
+    .sort((a,b)=>b.pts-a.pts||gd(b)-gd(a)||b.gf-a.gf)[2];
+}
 
 const groups = {
   I: {
@@ -380,21 +452,38 @@ function groupThirdDist(g){
 }
 
 function overallProb(){
-  // Monte Carlo over groups' third distributions
-  const dists={};
-  for(const g in groups) dists[g]=groupThirdDist(g);
-  const fixedAbove=4; // Ecuador,Sweden,Bosnia,Paraguay
+  // Monte Carlo: fix finished groups once, sample the live ones per iteration.
+  const fixedThirds=[], liveGroups=[];
+  for(const g in groups){
+    if(allMatchesEntered(g)) fixedThirds.push(computeGroupFinal(g).ranked[2]);
+    else liveGroups.push(g);
+  }
+  const baseAbove = 4 + fixedThirds.filter(thirdBeatsKorea).length; // +4 locked thirds
   const N=20000; let inCount=0;
   for(let s=0;s<N;s++){
-    let above=fixedAbove;
-    for(const g in groups){
-      const d=dists[g];
-      const pick=d[(Math.random()*d.length)|0];
-      if(thirdBeatsKorea(pick)) above++;
-    }
-    if(above+1<=8) inCount++;
+    let above=baseAbove;
+    for(const g of liveGroups) if(thirdBeatsKorea(sampleGroupThird(g))) above++;
+    if(above+1<=8) inCount++; // Korea herself is the +1; needs ≤8 total
   }
   return inCount/N*100;
+}
+
+// Possibility (not probability) analysis: across EVERY reachable 0..4 outcome,
+// what's the fewest / most teams that can finish above Korea?
+//   status: 'clinched' (always ≤7 above) | 'eliminated' (always ≥8) | 'alive'.
+function verdictState(){
+  let minAbove=4, maxAbove=4; // 4 already-locked thirds sit above Korea
+  for(const g in groups){
+    if(allMatchesEntered(g)){
+      if(thirdBeatsKorea(computeGroupFinal(g).ranked[2])){ minAbove++; maxAbove++; }
+    } else {
+      const outs=groupThirdDist(g);
+      if(outs.some(thirdBeatsKorea)) maxAbove++;        // some outcome puts a team above
+      if(outs.every(thirdBeatsKorea)) minAbove++;        // every outcome does → unavoidable
+    }
+  }
+  const status = maxAbove<=7 ? 'clinched' : minAbove>=8 ? 'eliminated' : 'alive';
+  return {minAbove, maxAbove, status};
 }
 
 function render(){
@@ -493,6 +582,27 @@ function render(){
   const el=document.getElementById("pctNum");
   el.textContent=Math.round(p)+"%";
   el.className="pct "+(p>=75?'good':p>=45?'warn':'bad');
+
+  // plain-English verdict line
+  const vs=verdictState();
+  const vEl=document.getElementById("verdictText");
+  if(vEl){
+    if(vs.status==='clinched'){
+      vEl.className="verdictText good";
+      vEl.textContent=`✅ Korea is THROUGH — even the worst remaining results leave only ${vs.maxAbove} teams above her (8+ would eliminate).`;
+    } else if(vs.status==='eliminated'){
+      vEl.className="verdictText bad";
+      vEl.textContent=`⛔ Korea is OUT — at least ${vs.minAbove} teams already finish above her (8+ = eliminated).`;
+    } else {
+      vEl.className="verdictText warn";
+      const needBad=8-vs.minAbove, cushion=7-vs.minAbove;
+      vEl.textContent=`⏳ Still alive — out only if ${needBad}+ more of the live groups send a team above Korea (cushion: ${cushion}).`;
+    }
+  }
+  maybeNotifyVerdict(vs.status);
+
+  recordProb(p);   // sparkline trajectory
+  renderRd32(vs);  // round-of-32 preview
 }
 
 // Build the current third-place standings from entered scores.
@@ -569,6 +679,103 @@ function applyRooting(){
   render();
 }
 
+// ============================================================
+// PROBABILITY SPARKLINE — records a point each time the input state changes
+// (we ignore Monte-Carlo jitter by keying on a signature of all entered scores).
+// ============================================================
+let probHistory=[]; let lastStateSig=null;
+function stateSignature(){
+  let s='';
+  for(const g in groups) for(const m of groups[g].matches) s+=`${m.hs??''}-${m.as??''}|`;
+  return s+MODEL;
+}
+function recordProb(p){
+  const sig=stateSignature();
+  if(sig===lastStateSig) return; // unchanged input → don't record MC noise
+  lastStateSig=sig;
+  probHistory.push(p);
+  if(probHistory.length>40) probHistory.shift();
+  drawSparkline();
+}
+function drawSparkline(){
+  const svg=document.getElementById("sparkline");
+  if(!svg) return;
+  const W=170,H=40,pad=4, h=probHistory;
+  if(h.length<2){
+    svg.innerHTML=`<text x="${W/2}" y="${H/2+4}" text-anchor="middle" style="fill:var(--dim)" font-size="10">enter a score…</text>`;
+    return;
+  }
+  const x=i=> pad + i*(W-2*pad)/(h.length-1);
+  const y=v=> pad + (1-v/100)*(H-2*pad);
+  const pts=h.map((v,i)=>`${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  const last=h[h.length-1];
+  const col= last>=75?'var(--good)':last>=45?'var(--warn)':'var(--bad)';
+  const y50=y(50).toFixed(1);
+  svg.innerHTML=
+    `<line x1="${pad}" y1="${y50}" x2="${W-pad}" y2="${y50}" style="stroke:var(--line)" stroke-dasharray="2 2"/>`+
+    `<polyline points="${pts}" style="fill:none;stroke:${col};stroke-width:2" stroke-linejoin="round" stroke-linecap="round"/>`+
+    `<circle cx="${x(h.length-1).toFixed(1)}" cy="${y(last).toFixed(1)}" r="2.8" style="fill:${col}"/>`;
+}
+
+// ============================================================
+// ROUND-OF-32 PREVIEW — Korea's third-place slot meets the Group G winner.
+// ============================================================
+function renderRd32(vs){
+  const box=document.getElementById("rd32");
+  if(!box) return;
+  vs = vs || verdictState();
+  if(vs.status==='eliminated'){ box.classList.remove('show'); return; }
+  const gWinner=computeGroupFinal('G').ranked[0];
+  const gDone=allMatchesEntered('G');
+  document.getElementById("r32main").innerHTML=
+    `Round of 32: Korea <span class="vsteam">vs ${gWinner.name}</span> — Group G winner`;
+  const winnerNote = gDone
+    ? `${gWinner.name} won Group G.`
+    : `${gWinner.name} currently tops Group G — not final (Egypt/Iran/Belgium still in play).`;
+  const cond = vs.status==='clinched'
+    ? `Korea is through, so this is the matchup.`
+    : `Conditional on Korea grabbing one of the 8 third-place slots.`;
+  document.getElementById("r32sub").textContent=`${winnerNote} Likely Seattle (Lumen Field). ${cond}`;
+  box.classList.add('show');
+}
+
+// ============================================================
+// MODEL TOGGLE — uniform 0–4  vs  strength-weighted Poisson
+// ============================================================
+function toggleModel(){
+  MODEL = MODEL==='uniform' ? 'poisson' : 'uniform';
+  const b=document.getElementById("modelBtn");
+  if(b) b.textContent = MODEL==='uniform' ? 'Model: Uniform 0–4' : 'Model: Strength-weighted';
+  render();
+}
+
+// ============================================================
+// BROWSER NOTIFICATIONS — on live API score changes and on verdict flips.
+// ============================================================
+let notifyEnabled=false;
+let lastVerdictStatus=null;
+let prevApiScores={}; // key "G:0" → {h,a}, to detect live score changes
+function enableNotifications(){
+  if(!("Notification" in window)){ alert("This browser doesn't support notifications."); return; }
+  Notification.requestPermission().then(perm=>{
+    notifyEnabled = perm==="granted";
+    const b=document.getElementById("notifyBtn");
+    if(b) b.textContent = notifyEnabled ? "🔔 Notifications on" : "🔕 Notifications blocked";
+  });
+}
+function notify(title, body){
+  if(notifyEnabled && Notification.permission==="granted"){
+    try{ new Notification(title,{body}); }catch(e){}
+  }
+}
+function maybeNotifyVerdict(status){
+  if(lastVerdictStatus && status!==lastVerdictStatus && status!=='alive'){
+    notify(status==='clinched'?"✅ Korea is THROUGH!":"⛔ Korea is OUT",
+           "The third-place picture just changed.");
+  }
+  lastVerdictStatus=status;
+}
+
 render();
 
 // ============================================================
@@ -596,7 +803,7 @@ async function fetchLiveScores(manual){
     let updated = 0, stillLive = false;
 
     for(const g in groups){
-      groups[g].matches.forEach(m=>{
+      groups[g].matches.forEach((m,i)=>{
         if(!m.api) return;
         const [homeHints, awayHints] = m.api;
         const found = apiGames.find(game =>
@@ -626,8 +833,14 @@ async function fetchLiveScores(manual){
 
         // Even after kickoff passed, only adopt a score if the API actually has one.
         if(haveScore){
-          m.hs = parseInt(hs,10);
-          m.as = parseInt(as,10);
+          const newH=parseInt(hs,10), newA=parseInt(as,10);
+          const key=g+":"+i, prev=prevApiScores[key];
+          if(!prev || prev.h!==newH || prev.a!==newA){
+            notify(`⚽ ${m.home} ${newH}–${newA} ${m.away}`, finished?"Full time":"Live score update");
+          }
+          prevApiScores[key]={h:newH,a:newA};
+          m.hs = newH;
+          m.as = newA;
           m.apiStatus = finished ? "final" : "live";
           if(finished) m.confirmed = true;
           updated++;
