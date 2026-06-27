@@ -102,6 +102,13 @@
   .livestatus{font-size:12px;color:var(--dim);margin:-8px 0 16px 2px}
   .livestatus.ok{color:var(--good)}
   .livestatus.err{color:var(--warn)}
+  .mbadge{font-size:9px;font-weight:700;letter-spacing:.03em;padding:2px 6px;
+    border-radius:20px;margin-left:6px;flex-shrink:0;white-space:nowrap}
+  .mbadge.final{background:rgba(63,185,80,.15);color:var(--good)}
+  .mbadge.live{background:rgba(248,81,73,.15);color:var(--bad);animation:pulse 1.5s infinite}
+  .mbadge.manual{background:rgba(88,166,255,.15);color:var(--accent)}
+  .mbadge.sched{background:#21262d;color:var(--dim)}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
 </style>
 </head>
 <body>
@@ -177,9 +184,9 @@ const groups = {
       Senegal:{pts:0,gf:3,ga:6}, Iraq:{pts:0,gf:1,ga:7}
     },
     matches:[
-      {home:"Norway",away:"France",time:"Fri 3PM",hs:1,as:4,
+      {home:"Norway",away:"France",time:"Fri 3PM",hs:1,as:4,confirmed:true,
         kickoff:"2026-06-26T15:00:00-04:00",api:[["norway"],["france"]]},
-      {home:"Senegal",away:"Iraq",time:"Fri 3PM",hs:5,as:0,
+      {home:"Senegal",away:"Iraq",time:"Fri 3PM",hs:5,as:0,confirmed:true,
         kickoff:"2026-06-26T15:00:00-04:00",api:[["senegal"],["iraq"]]}
     ],
     headline:"Senegal must NOT beat Iraq by 2+",
@@ -198,9 +205,9 @@ const groups = {
       CapeVerde:{pts:2,gf:2,ga:2}, Saudi:{pts:1,gf:1,ga:5}
     },
     matches:[
-      {home:"CapeVerde",away:"Saudi",time:"Fri 8PM",hs:0,as:0,
+      {home:"CapeVerde",away:"Saudi",time:"Fri 8PM",hs:0,as:0,confirmed:true,
         kickoff:"2026-06-26T20:00:00-04:00",api:[["cape verde","cabo verde"],["saudi"]]},
-      {home:"Uruguay",away:"Spain",time:"Fri 8PM",hs:0,as:1,
+      {home:"Uruguay",away:"Spain",time:"Fri 8PM",hs:0,as:1,confirmed:true,
         kickoff:"2026-06-26T20:00:00-04:00",api:[["uruguay"],["spain"]]}
     ],
     headline:"Spain must beat Uruguay",
@@ -412,6 +419,13 @@ function render(){
 
     let matchRows="";
     data.matches.forEach((m,i)=>{
+      const status = m.confirmed ? "final" : m.apiStatus==="live" ? "live" : m.apiStatus==="scheduled" ? "scheduled" : (m.hs!==undefined&&m.hs!==""?"manual":"scheduled");
+      const badge = {
+        final: '<span class="mbadge final">FINAL</span>',
+        live: '<span class="mbadge live">● LIVE</span>',
+        manual: '<span class="mbadge manual">manual</span>',
+        scheduled: '<span class="mbadge sched">not started</span>'
+      }[status];
       matchRows+=`<div class="match">
         <span class="time">${m.time}</span>
         <span class="teams">${m.home} <span class="vs">vs</span> ${m.away}</span>
@@ -419,6 +433,7 @@ function render(){
           onchange="setScore('${g}',${i},'hs',this.value)">
         <input class="score" inputmode="numeric" value="${m.as??''}"
           onchange="setScore('${g}',${i},'as',this.value)">
+        ${badge}
       </div>`;
     });
 
@@ -513,7 +528,10 @@ function setScore(g,i,side,val){
   render();
 }
 function resetScores(){
-  for(const g in groups) groups[g].matches.forEach(m=>{m.hs="";m.as="";});
+  for(const g in groups) groups[g].matches.forEach(m=>{
+    if(m.confirmed) return; // never wipe a real, locked-in result
+    m.hs=""; m.as="";
+  });
   render();
 }
 function applyRooting(){
@@ -567,15 +585,29 @@ async function fetchLiveScores(manual){
           matchesHint(game.away_team_name_en, awayHints)
         );
         if(!found) return;
+
         const finished = String(found.finished).toUpperCase()==="TRUE";
+        const elapsed = (found.time_elapsed||"").toLowerCase();
+        // Treat as "not started" unless the API says it's finished OR gives a
+        // real elapsed-time/live indicator. This stops 0-0 placeholders from
+        // a not-yet-kicked-off match from being written in as a real result.
+        const hasStarted = finished
+          || (elapsed && elapsed!=="not started" && elapsed!=="" && elapsed!=="scheduled");
+        m.apiStatus = finished ? "final" : hasStarted ? "live" : "scheduled";
+
+        if(!hasStarted){
+          return; // don't touch hs/as — leave for manual entry, no false 0-0
+        }
+
         const hs = found.home_score, as = found.away_score;
         if(hs!==null && hs!==undefined && hs!=="" && as!==null && as!==undefined && as!==""){
           m.hs = parseInt(hs,10);
           m.as = parseInt(as,10);
+          if(finished) m.confirmed = true;
           updated++;
         }
-        if(!finished && m.kickoff && new Date() >= new Date(m.kickoff)){
-          stillLive = true; // a match in our window has kicked off but isn't finished
+        if(!finished){
+          stillLive = true;
         }
       });
     }
