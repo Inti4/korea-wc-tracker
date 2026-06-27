@@ -606,24 +606,33 @@ async function fetchLiveScores(manual){
         if(!found) return;
 
         const finished = String(found.finished).toUpperCase()==="TRUE";
-        const elapsed = (found.time_elapsed||"").toLowerCase();
-        // Treat as "not started" unless the API says it's finished OR gives a
-        // real elapsed-time/live indicator. This stops 0-0 placeholders from
-        // a not-yet-kicked-off match from being written in as a real result.
-        const hasStarted = finished
-          || (elapsed && elapsed!=="not started" && elapsed!=="" && elapsed!=="scheduled");
-        m.apiStatus = finished ? "final" : hasStarted ? "live" : "scheduled";
+        const now = new Date();
+        const kickoffPassed = m.kickoff ? (now >= new Date(m.kickoff)) : false;
+
+        // A match can only be live/final if EITHER the API explicitly says finished,
+        // OR its real-world kickoff time has actually passed. We do NOT trust the
+        // API's score field alone, because it sends 0-0 placeholders before kickoff.
+        const hasStarted = finished || kickoffPassed;
 
         if(!hasStarted){
-          return; // don't touch hs/as — leave for manual entry, no false 0-0
+          // Before kickoff: ignore entirely. Leave scores empty, mark scheduled.
+          m.apiStatus = "scheduled";
+          return;
         }
 
         const hs = found.home_score, as = found.away_score;
-        if(hs!==null && hs!==undefined && hs!=="" && as!==null && as!==undefined && as!==""){
+        const haveScore = hs!==null && hs!==undefined && hs!=="" &&
+                          as!==null && as!==undefined && as!=="";
+
+        // Even after kickoff passed, only adopt a score if the API actually has one.
+        if(haveScore){
           m.hs = parseInt(hs,10);
           m.as = parseInt(as,10);
+          m.apiStatus = finished ? "final" : "live";
           if(finished) m.confirmed = true;
           updated++;
+        } else {
+          m.apiStatus = finished ? "final" : "live";
         }
         if(!finished){
           stillLive = true;
