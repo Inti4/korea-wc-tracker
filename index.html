@@ -30,6 +30,7 @@
   .gstatus{font-size:11px;padding:3px 8px;border-radius:20px;font-weight:600}
   .gstatus.done{background:#21262d;color:var(--dim)}
   .gstatus.live{background:rgba(210,153,34,.15);color:var(--warn)}
+  .gstatus.sched{background:#21262d;color:var(--dim)}
   table{width:100%;border-collapse:collapse;font-size:13px}
   th{text-align:right;color:var(--dim);font-weight:500;font-size:11px;padding:6px 8px;border-bottom:1px solid var(--line)}
   th:first-child{text-align:left}
@@ -335,6 +336,10 @@ function allMatchesEntered(g){
   return groups[g].matches.every(m=>m.hs!=null&&m.hs!==""&&m.as!=null&&m.as!=="");
 }
 
+function anyMatchEntered(g){
+  return groups[g].matches.some(m=>m.hs!=null&&m.hs!==""&&m.as!=null&&m.as!=="");
+}
+
 function thirdBeatsKorea(rec){
   if(rec.pts!==KOREA.pts) return rec.pts>KOREA.pts;
   if(gd(rec)!==KOREA.gd) return gd(rec)>KOREA.gd;
@@ -408,6 +413,7 @@ function render(){
     const {ranked}=computeGroupFinal(g);
     const third=ranked[2];
     const done=allMatchesEntered(g);
+    const anyStarted=anyMatchEntered(g);
     const beats = thirdBeatsKorea(third);
 
     let rows="";
@@ -419,7 +425,20 @@ function render(){
 
     let matchRows="";
     data.matches.forEach((m,i)=>{
-      const status = m.confirmed ? "final" : m.apiStatus==="live" ? "live" : m.apiStatus==="scheduled" ? "scheduled" : (m.hs!==undefined&&m.hs!==""?"manual":"scheduled");
+      const hasScore = m.hs!==undefined && m.hs!=="" && m.hs!==null
+                     && m.as!==undefined && m.as!=="" && m.as!==null;
+      let status;
+      if(!hasScore){
+        status = "scheduled"; // no score entered → never LIVE or FINAL, no matter what apiStatus says
+      } else if(m.confirmed){
+        status = "final";
+      } else if(m.apiStatus==="live"){
+        status = "live";
+      } else if(m.apiStatus==="final"){
+        status = "final";
+      } else {
+        status = "manual"; // has a score, but it's user-typed / not API-confirmed
+      }
       const badge = {
         final: '<span class="mbadge final">FINAL</span>',
         live: '<span class="mbadge live">● LIVE</span>',
@@ -455,7 +474,7 @@ function render(){
       <div class="group">
         <div class="ghead">
           <span class="gname">Group ${g}</span>
-          <span class="gstatus ${done?'done':'live'}">${done?'FINISHED':'LIVE'}</span>
+          <span class="gstatus ${done?'done':anyStarted?'live':'sched'}">${done?'FINISHED':anyStarted?'LIVE':'NOT STARTED'}</span>
         </div>
         <table>
           <tr><th>Team</th><th>Pts</th><th>GD</th><th>GF</th></tr>
@@ -530,7 +549,7 @@ function setScore(g,i,side,val){
 function resetScores(){
   for(const g in groups) groups[g].matches.forEach(m=>{
     if(m.confirmed) return; // never wipe a real, locked-in result
-    m.hs=""; m.as="";
+    m.hs=""; m.as=""; m.apiStatus="scheduled";
   });
   render();
 }
