@@ -1,5 +1,7 @@
 # korea-wc-tracker
 
+**Live demo: [inti4.github.io/korea-wc-tracker](https://inti4.github.io/korea-wc-tracker/)**
+
 A single-page tracker for whether South Korea would qualify for the 2026 World Cup
 Round of 32 as one of the eight best third-place teams. Built to run live during the
 final group-stage matches (June 26–27, 2026).
@@ -8,6 +10,8 @@ Qualifying as a best-third-place team hinged on results across many other groups
 once: a large set of possible scorelines could move Korea above or below the top-8
 cut line. The tracker recomputes the full cross-group third-place table and a
 Monte-Carlo qualification probability every time a score changes.
+
+![Korea Watch — live third-place qualification tracker](screenshots/tracker.png)
 
 ## What it does
 
